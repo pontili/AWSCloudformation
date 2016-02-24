@@ -1,0 +1,692 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+ "Description": "Example of High Availability for EC2 and RDS working in Frankfurt Region",
+   "Parameters": {
+    "VPCName": {
+      "Type": "String",
+      "Description": "VPN Name",
+      "MinLength": "8",
+      "MaxLength": "18",
+      "Default": "VPCCrossover"
+    },
+	"KeyPairName":{
+		"Type": "String",
+      "Description": "Name of the keypair of your aws account",
+      "MinLength": "8",
+      "MaxLength": "18",
+      "Default": "standardFrankfurt"
+	},
+	"MySqlLogin":{
+		"Type": "String",
+      "Description": "Login name for root account mysql",
+      "MinLength": "4",
+      "MaxLength": "18",
+      "Default": "root"
+	},
+	"MySqlPassword":{
+		"Type": "String",
+      "Description": "Password for root account mysql",
+      "MinLength": "8",
+      "MaxLength": "18",
+      "Default": "Password"
+	},
+	"FrontEndAmi":{
+		"Type": "String",
+      "Description": "Ami used by LC for FrontEnd",
+      "MinLength": "12",
+      "MaxLength": "20",
+      "Default": "ami-bc5b48d0"
+	},
+	"RoleEc2":{
+		"Type": "String",
+      "Description": "Role associated to WebServers to access S3",
+      "MinLength": "4",
+      "MaxLength": "20",
+      "Default": "S3Role"
+	}
+  },
+  "Resources": {
+    "vpcbe4d26d7": {
+      "Type": "AWS::EC2::VPC",
+      "Properties": {
+        "CidrBlock": "10.0.0.0/16",
+        "InstanceTenancy": "default",
+        "EnableDnsSupport": "true",
+        "EnableDnsHostnames": "true",
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Ref": "VPCName"
+            }
+          }
+        ]
+      }
+    },
+    "subneta24c2bd9": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "CidrBlock": "10.0.3.0/24",
+        "AvailabilityZone": "eu-central-1b",
+        "VpcId": {
+          "Ref": "vpcbe4d26d7"
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "PrivateSubnet2"
+          }
+        ]
+      }
+    },
+    "subnet50733339": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "CidrBlock": "10.0.0.0/24",
+        "AvailabilityZone": "eu-central-1a",
+        "VpcId": {
+          "Ref": "vpcbe4d26d7"
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "PublicSubnet1"
+          }
+        ]
+      }
+    },
+    "subnet51733338": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "CidrBlock": "10.0.1.0/24",
+        "AvailabilityZone": "eu-central-1a",
+        "VpcId": {
+          "Ref": "vpcbe4d26d7"
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "PrivateSubnet1"
+          }
+        ]
+      }
+    },
+    "subnetaf4c2bd4": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "CidrBlock": "10.0.2.0/24",
+        "AvailabilityZone": "eu-central-1b",
+        "VpcId": {
+          "Ref": "vpcbe4d26d7"
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "PublicSubnet2"
+          }
+        ]
+      }
+    },
+    "igw3b12a352": {
+      "Type": "AWS::EC2::InternetGateway",
+      "Properties": {
+      }
+    },
+    "doptfef61297": {
+      "Type": "AWS::EC2::DHCPOptions",
+      "Properties": {
+        "DomainName": "eu-central-1.compute.internal",
+        "DomainNameServers": [
+          "AmazonProvidedDNS"
+        ]
+      }
+    },
+    "acl12a9d67b": {
+      "Type": "AWS::EC2::NetworkAcl",
+      "Properties": {
+        "VpcId": {
+          "Ref": "vpcbe4d26d7"
+        }
+      }
+    },
+    "rtbb6671edf": {
+      "Type": "AWS::EC2::RouteTable",
+      "Properties": {
+        "VpcId": {
+          "Ref": "vpcbe4d26d7"
+        }
+      }
+    },
+    "rtbb7671ede": {
+      "Type": "AWS::EC2::RouteTable",
+      "Properties": {
+        "VpcId": {
+          "Ref": "vpcbe4d26d7"
+        }
+      }
+    },
+    "elbELBCrossover": {
+      "Type": "AWS::ElasticLoadBalancing::LoadBalancer",
+      "Properties": {
+        "Subnets": [
+          {
+            "Ref": "subnet50733339"
+          },
+          {
+            "Ref": "subnetaf4c2bd4"
+          }
+        ],
+        "HealthCheck": {
+          "HealthyThreshold": "10",
+          "Interval": "30",
+          "Target": "HTTP:80/phpinfo.php",
+          "Timeout": "5",
+          "UnhealthyThreshold": "2"
+        },
+        "ConnectionDrainingPolicy": {
+          "Enabled": "true",
+          "Timeout": "300"
+        },
+        "ConnectionSettings": {
+          "IdleTimeout": "60"
+        },
+        "CrossZone": "true",
+        "SecurityGroups": [
+          {
+            "Ref": "sgSGELB"
+          }
+        ],
+        "Listeners": [
+          {
+            "InstancePort": "80",
+            "LoadBalancerPort": "80",
+            "Protocol": "HTTP",
+            "InstanceProtocol": "HTTP"
+          }
+        ]
+      }
+    },
+    "asgASGCrossover2": {
+      "Type": "AWS::AutoScaling::AutoScalingGroup",
+	    "DependsOn":  "gw3",
+      "Properties": {
+        "AvailabilityZones": [
+          "eu-central-1b",
+          "eu-central-1a"
+        ],
+        "Cooldown": "300",
+        "DesiredCapacity": "2",
+        "HealthCheckGracePeriod": "300",
+        "HealthCheckType": "ELB",
+        "MaxSize": "2",
+        "MinSize": "2",
+        "VPCZoneIdentifier": [
+          {
+            "Ref": "subnet50733339"
+          },
+          {
+            "Ref": "subnetaf4c2bd4"
+          }
+        ],
+        "LaunchConfigurationName": {
+          "Ref": "lcLCCrossover"
+        },
+        "LoadBalancerNames": [
+          {
+            "Ref": "elbELBCrossover"
+          }
+        ],
+        "TerminationPolicies": [
+          "Default"
+        ]
+      }
+    },
+    "lcLCCrossover": {
+      "Type": "AWS::AutoScaling::LaunchConfiguration",
+      "Properties": {
+        "AssociatePublicIpAddress": true,
+        "ImageId": {
+            "Ref": "FrontEndAmi"
+          },
+        "InstanceType": "t2.micro",
+        "KeyName": "standardFrankfurt",
+        "IamInstanceProfile": {"Ref": "RoleEc2"},
+        "SecurityGroups": [
+          {
+            "Ref": "sgSGFE"
+          }
+        ],
+		"UserData" : {"Fn::Join": ["",
+		["IyEvYmluL2Jhc2gNCnl1bSB1cGRhdGUgLXkNCnl1bSBpbnN0YWxsIC15IGh0dHBkMjQgcGhwNTYgbXlzcWw1NS1zZXJ2ZXIgcGhwNTYtbXlzcWxuZA0Kc2VydmljZSBodHRwZCBzdGFydA0KY2hrY29uZmlnIGh0dHBkIG9uDQpncm91cGFkZCB3d3cNCnVzZXJtb2QgLWEgLUcgd3d3IGVjMi11c2VyDQpjaG93biAtUiByb290Ond3dyAvdmFyL3d3dw0KY2htb2QgMjc3NSAvdmFyL3d3dw0KZmluZCAvdmFyL3d3dyAtdHlwZSBkIC1leGVjIGNobW9kIDI3NzUge30gKw0KZmluZCAvdmFyL3d3dyAtdHlwZSBmIC1leGVjIGNobW9kIDA2NjQge30gKw0KZWNobyAiPD9waHAgcGhwaW5mbygpOyA/PiIgPiAvdmFyL3d3dy9odG1sL3BocGluZm8ucGhw"]
+		]},
+        "BlockDeviceMappings": [
+          {
+            "DeviceName": "/dev/xvda",
+            "Ebs": {
+              "VolumeSize": 8
+            }
+          }
+        ]
+      }
+    },
+    "rdscrossover4": {
+      "Type": "AWS::RDS::DBInstance",
+      "Properties": {
+        "AllocatedStorage": "5",
+        "AllowMajorVersionUpgrade": "false",
+        "AutoMinorVersionUpgrade": "true",
+        "DBInstanceClass": "db.t2.micro",
+        "StorageType": "gp2",
+        "BackupRetentionPeriod": "7",
+        "MasterUsername": {
+          "Ref": "MySqlLogin"
+        },
+        "MasterUserPassword": {
+          "Ref": "MySqlPassword"
+        },
+        "PreferredBackupWindow": "21:40-22:10",
+        "PreferredMaintenanceWindow": "thu:22:22-thu:22:52",
+        "DBName": "MyDatabase",
+        "Engine": "mysql",
+        "EngineVersion": "5.6.23",
+        "LicenseModel": "general-public-license",
+        "MultiAZ": "true",
+        "DBSubnetGroupName": {
+          "Ref": "dbsubnetcrossoverdb"
+        },
+        "VPCSecurityGroups": [
+          {
+            "Ref": "sgSGBE"
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "workload-type",
+            "Value": "production"
+          }
+        ]
+      }
+    },
+    "dbsubnetcrossoverdb": {
+      "Type": "AWS::RDS::DBSubnetGroup",
+      "Properties": {
+        "DBSubnetGroupDescription": "CrossoverDB",
+        "SubnetIds": [
+          {
+            "Ref": "subneta24c2bd9"
+          },
+          {
+            "Ref": "subnet51733338"
+          }
+        ]
+      }
+    },
+    "sgdefault": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "default VPC security group",
+        "VpcId": {
+          "Ref": "vpcbe4d26d7"
+        }
+      }
+    },
+    "sgSGBE": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "SG_BE",
+        "VpcId": {
+          "Ref": "vpcbe4d26d7"
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "SG_BE"
+          }
+        ]
+      }
+    },
+    "sgSGELB": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "SG_ELB",
+        "VpcId": {
+          "Ref": "vpcbe4d26d7"
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "SG_ELB"
+          }
+        ]
+      }
+    },
+    "sgSGFE": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "SG_FE",
+        "VpcId": {
+          "Ref": "vpcbe4d26d7"
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "SG_FE"
+          }
+        ]
+      }
+    },
+    "scalingDown": {
+      "Type": "AWS::AutoScaling::ScalingPolicy",
+      "Properties": {
+        "AdjustmentType": "ChangeInCapacity",
+		 "ScalingAdjustment" : -2,
+        "AutoScalingGroupName": {
+          "Ref": "asgASGCrossover2"
+        }
+      }
+    },
+    "scalingUp": {
+      "Type": "AWS::AutoScaling::ScalingPolicy",
+      "Properties": {
+        "AdjustmentType": "ChangeInCapacity",
+		 "ScalingAdjustment" : 2,
+        "AutoScalingGroupName": {
+          "Ref": "asgASGCrossover2"
+        }
+      }
+    },
+    "alarmawsec2ASGCrossover2CPUUtilization": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "ActionsEnabled": "true",
+        "ComparisonOperator": "GreaterThanOrEqualToThreshold",
+        "EvaluationPeriods": "1",
+        "MetricName": "CPUUtilization",
+        "Namespace": "AWS/EC2",
+        "Period": "300",
+        "Statistic": "Average",
+        "Threshold": "70.0",
+        "AlarmActions": [
+          {
+            "Ref": "scalingUp"
+          }
+        ],
+        "Dimensions": [
+          {
+            "Name": "AutoScalingGroupName",
+            "Value": "ASG_Crossover2"
+          }
+        ]
+      }
+    },
+    "alarmawsec2ASGCrossover2HighCPUUtilization": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "ActionsEnabled": "true",
+        "ComparisonOperator": "LessThanOrEqualToThreshold",
+        "EvaluationPeriods": "3",
+        "MetricName": "CPUUtilization",
+        "Namespace": "AWS/EC2",
+        "Period": "300",
+        "Statistic": "Average",
+        "Threshold": "20.0",
+        "AlarmActions": [
+          {
+            "Ref": "scalingDown"
+          }
+        ],
+        "Dimensions": [
+          {
+            "Name": "AutoScalingGroupName",
+            "Value": "ASG_Crossover2"
+          }
+        ]
+      }
+    },
+    "acl5": {
+      "Type": "AWS::EC2::NetworkAclEntry",
+      "Properties": {
+        "CidrBlock": "0.0.0.0/0",
+        "Egress": "true",
+        "Protocol": "-1",
+        "RuleAction": "allow",
+        "RuleNumber": "100",
+        "NetworkAclId": {
+          "Ref": "acl12a9d67b"
+        }
+      }
+    },
+    "acl6": {
+      "Type": "AWS::EC2::NetworkAclEntry",
+      "Properties": {
+        "CidrBlock": "0.0.0.0/0",
+        "Protocol": "-1",
+        "RuleAction": "allow",
+        "RuleNumber": "100",
+        "NetworkAclId": {
+          "Ref": "acl12a9d67b"
+        }
+      }
+    },
+    "subnetacl9": {
+      "Type": "AWS::EC2::SubnetNetworkAclAssociation",
+      "Properties": {
+        "NetworkAclId": {
+          "Ref": "acl12a9d67b"
+        },
+        "SubnetId": {
+          "Ref": "subnet50733339"
+        }
+      }
+    },
+    "subnetacl10": {
+      "Type": "AWS::EC2::SubnetNetworkAclAssociation",
+      "Properties": {
+        "NetworkAclId": {
+          "Ref": "acl12a9d67b"
+        },
+        "SubnetId": {
+          "Ref": "subnet51733338"
+        }
+      }
+    },
+    "subnetacl11": {
+      "Type": "AWS::EC2::SubnetNetworkAclAssociation",
+      "Properties": {
+        "NetworkAclId": {
+          "Ref": "acl12a9d67b"
+        },
+        "SubnetId": {
+          "Ref": "subneta24c2bd9"
+        }
+      }
+    },
+    "subnetacl12": {
+      "Type": "AWS::EC2::SubnetNetworkAclAssociation",
+      "Properties": {
+        "NetworkAclId": {
+          "Ref": "acl12a9d67b"
+        },
+        "SubnetId": {
+          "Ref": "subnetaf4c2bd4"
+        }
+      }
+    },
+    "gw3": {
+      "Type": "AWS::EC2::VPCGatewayAttachment",
+      "Properties": {
+        "VpcId": {
+          "Ref": "vpcbe4d26d7"
+        },
+        "InternetGatewayId": {
+          "Ref": "igw3b12a352"
+        }
+		
+		
+      }
+    },
+    "subnetroute7": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "RouteTableId": {
+          "Ref": "rtbb6671edf"
+        },
+        "SubnetId": {
+          "Ref": "subnetaf4c2bd4"
+        }
+      }
+    },
+    "subnetroute8": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "RouteTableId": {
+          "Ref": "rtbb6671edf"
+        },
+        "SubnetId": {
+          "Ref": "subnet50733339"
+        }
+      }
+    },
+    "route5": {
+      "Type": "AWS::EC2::Route",
+      "Properties": {
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "RouteTableId": {
+          "Ref": "rtbb6671edf"
+        },
+        "GatewayId": {
+          "Ref": "igw3b12a352"
+        }
+      },
+      "DependsOn": "gw3"
+    },
+    "dchpassoc3": {
+      "Type": "AWS::EC2::VPCDHCPOptionsAssociation",
+      "Properties": {
+        "VpcId": {
+          "Ref": "vpcbe4d26d7"
+        },
+        "DhcpOptionsId": {
+          "Ref": "doptfef61297"
+        }
+      }
+    },
+    "ingress14": {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Properties": {
+        "GroupId": {
+          "Ref": "sgdefault"
+        },
+        "IpProtocol": "-1",
+        "SourceSecurityGroupId": {
+          "Ref": "sgdefault"
+        },
+        "SourceSecurityGroupOwnerId": "501098866022"
+      }
+    },
+    "ingress15": {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Properties": {
+        "GroupId": {
+          "Ref": "sgSGBE"
+        },
+        "IpProtocol": "tcp",
+        "FromPort": "3306",
+        "ToPort": "3306",
+        "SourceSecurityGroupId": {
+          "Ref": "sgSGFE"
+        },
+        "SourceSecurityGroupOwnerId": "501098866022"
+      }
+    },
+    "ingress16": {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Properties": {
+        "GroupId": {
+          "Ref": "sgSGELB"
+        },
+        "IpProtocol": "tcp",
+        "FromPort": "80",
+        "ToPort": "80",
+        "CidrIp": "0.0.0.0/0"
+      }
+    },
+    "ingress17": {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Properties": {
+        "GroupId": {
+          "Ref": "sgSGELB"
+        },
+        "IpProtocol": "tcp",
+        "FromPort": "443",
+        "ToPort": "443",
+        "CidrIp": "0.0.0.0/0"
+      }
+    },
+    "ingress18": {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Properties": {
+        "GroupId": {
+          "Ref": "sgSGFE"
+        },
+        "IpProtocol": "tcp",
+        "FromPort": "80",
+        "ToPort": "80",
+        "SourceSecurityGroupId": {
+          "Ref": "sgSGELB"
+        },
+        "SourceSecurityGroupOwnerId": "501098866022"
+      }
+    },
+    "egress8": {
+      "Type": "AWS::EC2::SecurityGroupEgress",
+      "Properties": {
+        "GroupId": {
+          "Ref": "sgdefault"
+        },
+        "IpProtocol": "-1",
+        "CidrIp": "0.0.0.0/0"
+      }
+    },
+    "egress9": {
+      "Type": "AWS::EC2::SecurityGroupEgress",
+      "Properties": {
+        "GroupId": {
+          "Ref": "sgSGBE"
+        },
+        "IpProtocol": "-1",
+        "CidrIp": "0.0.0.0/0"
+      }
+    },
+    "egress10": {
+      "Type": "AWS::EC2::SecurityGroupEgress",
+      "Properties": {
+        "GroupId": {
+          "Ref": "sgSGELB"
+        },
+        "IpProtocol": "-1",
+        "CidrIp": "0.0.0.0/0"
+      }
+    },
+    "egress11": {
+      "Type": "AWS::EC2::SecurityGroupEgress",
+      "Properties": {
+        "GroupId": {
+          "Ref": "sgSGFE"
+        },
+        "IpProtocol": "-1",
+        "CidrIp": "0.0.0.0/0"
+      }
+    }
+  },
+   "Outputs" : {
+
+
+    "UrlELB" : {
+      "Description" : "URL ELB to access Web Servers",
+	  "Value" : { "Fn::Join" : [ "", [ "http://", { "Fn::GetAtt" : [ "elbELBCrossover", "DNSName" ] } ,""] ] }
+    }
+	
+	
+  }
+}
